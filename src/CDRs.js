@@ -72,15 +72,20 @@ const CDRs = ({ cgratesConfig }) => {
   const [offset, setOffset] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedRowData, setSelectedRowData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [responseTime, setResponseTime] = useState(null);
   const [exportResult, setExportResult] = useState(null);
+  const [deleteResult, setDeleteResult] = useState(null);
   const [selectedExporter, setSelectedExporter] = useState("");
   const [isExporting, setIsExporting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [exportApiQuery, setExportApiQuery] = useState("");
+  const [deleteApiQuery, setDeleteApiQuery] = useState("");
   const [exporterOptions, setExporterOptions] = useState([]);
   const [isVerbose, setIsVerbose] = useState(true); // Default to true
+  const [deleteAfterExport, setDeleteAfterExport] = useState(false);
 
   const handleVerboseChange = (event) => {
     setIsVerbose(event.target.value === "true");
@@ -303,6 +308,8 @@ const CDRs = ({ cgratesConfig }) => {
       return;
     }
     setIsExporting(true);
+    setDeleteResult(null);
+    setDeleteApiQuery("");
 
     // Remove Limit/Offset for export but keep the rest, add exporter + verbose
     const exportQuery = {
@@ -323,7 +330,7 @@ const CDRs = ({ cgratesConfig }) => {
     setExportApiQuery(JSON.stringify(exportQuery, null, 2));
 
     try {
-      const response = await fetch(cgratesConfig.url + "/jsonrpc", {
+      const response = await fetch(cgratesConfig.url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(exportQuery),
@@ -335,6 +342,60 @@ const CDRs = ({ cgratesConfig }) => {
 
       const data = await response.json();
       setExportResult(JSON.stringify(data, null, 2));
+
+      // If delete after export is enabled and export was successful, delete the CDRs
+      if (deleteAfterExport && data.result) {
+        setIsDeleting(true);
+
+        const deleteQuery = {
+          method: "CDRsV2.RemoveCDRs",
+          params: [
+            {
+              SetupTimeStart: query.params[0].SetupTimeStart,
+              SetupTimeEnd: query.params[0].SetupTimeEnd,
+              Tenants: query.params[0].Tenants,
+              Accounts: query.params[0].Accounts,
+              Subjects: query.params[0].Subjects,
+              Categories: query.params[0].Categories,
+              DestinationPrefixes: query.params[0].DestinationPrefixes,
+            },
+          ],
+          id: 3,
+        };
+
+        // Remove undefined fields
+        Object.keys(deleteQuery.params[0]).forEach((key) => {
+          if (deleteQuery.params[0][key] === undefined) {
+            delete deleteQuery.params[0][key];
+          }
+        });
+
+        setDeleteApiQuery(JSON.stringify(deleteQuery, null, 2));
+
+        try {
+          const deleteResponse = await fetch(cgratesConfig.url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(deleteQuery),
+          });
+
+          if (!deleteResponse.ok) {
+            throw new Error(`HTTP error! status: ${deleteResponse.status}`);
+          }
+
+          const deleteData = await deleteResponse.json();
+          setDeleteResult(JSON.stringify(deleteData, null, 2));
+
+          if (deleteData.result) {
+            setResults([]);
+          }
+        } catch (deleteError) {
+          console.error("Error deleting CDRs after export:", deleteError);
+          setDeleteResult(`Error: ${deleteError.message}`);
+        } finally {
+          setIsDeleting(false);
+        }
+      }
     } catch (error) {
       console.error("Error exporting data:", error);
       setExportResult(`Error: ${error.message}`);
@@ -347,8 +408,77 @@ const CDRs = ({ cgratesConfig }) => {
   const handleExportModalClose = () => {
     setShowExportModal(false);
     setExportResult(null);
+    setDeleteResult(null);
     setSelectedExporter("");
     setExportApiQuery("");
+    setDeleteApiQuery("");
+    setDeleteAfterExport(false);
+  };
+
+  const handleDeleteModalOpen = () => setShowDeleteModal(true);
+  const handleDeleteModalClose = () => {
+    setShowDeleteModal(false);
+    setDeleteResult(null);
+    setDeleteApiQuery("");
+  };
+
+  const handleDelete = async () => {
+    if (!query) {
+      console.error("No query available for delete");
+      return;
+    }
+    setIsDeleting(true);
+
+    // Build delete query with same filters but without Limit/Offset
+    const deleteQuery = {
+      method: "CDRsV2.RemoveCDRs",
+      params: [
+        {
+          SetupTimeStart: query.params[0].SetupTimeStart,
+          SetupTimeEnd: query.params[0].SetupTimeEnd,
+          Tenants: query.params[0].Tenants,
+          Accounts: query.params[0].Accounts,
+          Subjects: query.params[0].Subjects,
+          Categories: query.params[0].Categories,
+          DestinationPrefixes: query.params[0].DestinationPrefixes,
+        },
+      ],
+      id: 3,
+    };
+
+    // Remove undefined fields
+    Object.keys(deleteQuery.params[0]).forEach((key) => {
+      if (deleteQuery.params[0][key] === undefined) {
+        delete deleteQuery.params[0][key];
+      }
+    });
+
+    setDeleteApiQuery(JSON.stringify(deleteQuery, null, 2));
+
+    try {
+      const response = await fetch(cgratesConfig.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(deleteQuery),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setDeleteResult(JSON.stringify(data, null, 2));
+
+      // If deletion was successful, clear results and refresh
+      if (data.result) {
+        setResults([]);
+      }
+    } catch (error) {
+      console.error("Error deleting CDRs:", error);
+      setDeleteResult(`Error: ${error.message}`);
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const categoryTotals = useMemo(() => {
@@ -635,13 +765,22 @@ const CDRs = ({ cgratesConfig }) => {
         </Pagination>
 
         {results.length > 0 && (
-          <Button
-            variant="primary"
-            onClick={handleExportModalOpen}
-            className="mt-3"
-          >
-            Export
-          </Button>
+          <>
+            <Button
+              variant="primary"
+              onClick={handleExportModalOpen}
+              className="mt-3 me-2"
+            >
+              Export CDRs
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleDeleteModalOpen}
+              className="mt-3"
+            >
+              Delete CDRs
+            </Button>
+          </>
         )}
 
         {results.length > 0 && (
@@ -787,8 +926,23 @@ const CDRs = ({ cgratesConfig }) => {
             />
           </Form.Group>
 
+          <Form.Group controlId="formDeleteAfterExport" className="mt-3">
+            <Form.Check
+              type="checkbox"
+              id="delete-after-export"
+              label="Delete CDRs after export"
+              checked={deleteAfterExport}
+              onChange={(e) => setDeleteAfterExport(e.target.checked)}
+            />
+            {deleteAfterExport && (
+              <Form.Text className="text-danger">
+                Warning: CDRs matching the search filters will be permanently deleted after successful export.
+              </Form.Text>
+            )}
+          </Form.Group>
+
           {exportApiQuery && (
-            <pre className="mt-3">API Call: {exportApiQuery}</pre>
+            <pre className="mt-3">Export API Call: {exportApiQuery}</pre>
           )}
 
           {isExporting ? (
@@ -800,7 +954,24 @@ const CDRs = ({ cgratesConfig }) => {
             </div>
           ) : (
             exportResult && (
-              <pre className="mt-3">API Response: {exportResult}</pre>
+              <pre className="mt-3">Export API Response: {exportResult}</pre>
+            )
+          )}
+
+          {deleteAfterExport && deleteApiQuery && (
+            <pre className="mt-3">Delete API Call: {deleteApiQuery}</pre>
+          )}
+
+          {deleteAfterExport && isDeleting ? (
+            <div className="text-center mt-3">
+              <Spinner animation="border" role="status">
+                <span className="sr-only">Deleting...</span>
+              </Spinner>
+              <p>Deleting CDRs, please wait...</p>
+            </div>
+          ) : (
+            deleteAfterExport && deleteResult && (
+              <pre className="mt-3">Delete API Response: {deleteResult}</pre>
             )
           )}
         </Modal.Body>
@@ -809,14 +980,85 @@ const CDRs = ({ cgratesConfig }) => {
           <Button
             variant="primary"
             onClick={handleExport}
-            disabled={isExporting || !selectedExporter}
+            disabled={isExporting || isDeleting || !selectedExporter}
           >
             Export
           </Button>
           <Button
             variant="secondary"
             onClick={handleExportModalClose}
-            disabled={isExporting}
+            disabled={isExporting || isDeleting}
+          >
+            Close
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      {/* Modal for Delete CDRs */}
+      <Modal show={showDeleteModal} onHide={handleDeleteModalClose}>
+        <Modal.Header closeButton>
+          <Modal.Title>Delete CDRs</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <p className="text-danger">
+            <strong>Warning:</strong> This action will permanently delete all CDRs matching the current search filters. This cannot be undone.
+          </p>
+
+          <h6>Filters that will be applied:</h6>
+          <ul>
+            {query?.params[0]?.SetupTimeStart && (
+              <li><strong>Setup Time Start:</strong> {query.params[0].SetupTimeStart}</li>
+            )}
+            {query?.params[0]?.SetupTimeEnd && (
+              <li><strong>Setup Time End:</strong> {query.params[0].SetupTimeEnd}</li>
+            )}
+            {query?.params[0]?.Tenants && (
+              <li><strong>Tenants:</strong> {query.params[0].Tenants.join(", ")}</li>
+            )}
+            {query?.params[0]?.Accounts && (
+              <li><strong>Accounts:</strong> {query.params[0].Accounts.join(", ")}</li>
+            )}
+            {query?.params[0]?.Subjects && (
+              <li><strong>Subjects:</strong> {query.params[0].Subjects.join(", ")}</li>
+            )}
+            {query?.params[0]?.Categories && (
+              <li><strong>Categories:</strong> {query.params[0].Categories.join(", ")}</li>
+            )}
+            {query?.params[0]?.DestinationPrefixes && (
+              <li><strong>Destination Prefixes:</strong> {query.params[0].DestinationPrefixes.join(", ")}</li>
+            )}
+          </ul>
+
+          {deleteApiQuery && (
+            <pre className="mt-3">API Call: {deleteApiQuery}</pre>
+          )}
+
+          {isDeleting ? (
+            <div className="text-center mt-3">
+              <Spinner animation="border" role="status">
+                <span className="sr-only">Deleting...</span>
+              </Spinner>
+              <p>Deleting CDRs, please wait...</p>
+            </div>
+          ) : (
+            deleteResult && (
+              <pre className="mt-3">API Response: {deleteResult}</pre>
+            )
+          )}
+        </Modal.Body>
+
+        <Modal.Footer>
+          <Button
+            variant="danger"
+            onClick={handleDelete}
+            disabled={isDeleting}
+          >
+            Delete CDRs
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={handleDeleteModalClose}
+            disabled={isDeleting}
           >
             Close
           </Button>
