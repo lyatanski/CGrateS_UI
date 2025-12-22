@@ -330,7 +330,7 @@ const CDRs = ({ cgratesConfig }) => {
     setExportApiQuery(JSON.stringify(exportQuery, null, 2));
 
     try {
-      const response = await fetch(cgratesConfig.url, {
+      const response = await fetch(cgratesConfig.url + "/jsonrpc", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(exportQuery),
@@ -373,7 +373,7 @@ const CDRs = ({ cgratesConfig }) => {
         setDeleteApiQuery(JSON.stringify(deleteQuery, null, 2));
 
         try {
-          const deleteResponse = await fetch(cgratesConfig.url, {
+          const deleteResponse = await fetch(cgratesConfig.url + "/jsonrpc", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(deleteQuery),
@@ -456,7 +456,7 @@ const CDRs = ({ cgratesConfig }) => {
     setDeleteApiQuery(JSON.stringify(deleteQuery, null, 2));
 
     try {
-      const response = await fetch(cgratesConfig.url, {
+      const response = await fetch(cgratesConfig.url + "/jsonrpc", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(deleteQuery),
