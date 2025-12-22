@@ -348,7 +348,7 @@ const CDRs = ({ cgratesConfig }) => {
         setIsDeleting(true);
 
         const deleteQuery = {
-          method: "CDRsV2.RemoveCDRs",
+          method: "APIerSv1.RemoveCDRs",
           params: [
             {
               SetupTimeStart: query.params[0].SetupTimeStart,
@@ -431,7 +431,7 @@ const CDRs = ({ cgratesConfig }) => {
 
     // Build delete query with same filters but without Limit/Offset
     const deleteQuery = {
-      method: "CDRsV2.RemoveCDRs",
+      method: "APIerSv1.RemoveCDRs",
       params: [
         {
           SetupTimeStart: query.params[0].SetupTimeStart,
